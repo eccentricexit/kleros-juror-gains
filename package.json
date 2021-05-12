@@ -1,0 +1,17 @@
+{
+  "name": "kleros",
+  "version": "1.0.0",
+  "description": "tax reporting tool",
+  "main": "index.js",
+  "author": "Matheus Alencar",
+  "private": true,
+  "volta": {
+    "node": "14.17.0",
+    "yarn": "1.22.10"
+  },
+  "dependencies": {
+    "argparse": "^2.0.1",
+    "delay": "^5.0.0",
+    "ethers": "^5.1.4"
+  }
+}
