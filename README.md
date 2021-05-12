@@ -7,7 +7,7 @@ It puts all of the events where you earned or lost PNK and all ETH earned into a
 ## Steps to use:
 
 0. You need etherscan and cryptocompare api keys for this. Free tier is fine;
-1. `yarn` and `node` in the version specified inside `volta` in `package.json`;
+1. `yarn` and `node` in the version specified inside `volta` in `package.json` (or skip this step if you have (volta)[volta.sh] installed);
 2. Run `yarn` to install dependencies;
 3. Make a JSON file with an array of the addresses you used as a juror;
 4. Run`yarn start -e <etherscan-key> -a <path-to-json> -c <cryptocompare-key>`;
