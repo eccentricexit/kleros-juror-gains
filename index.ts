@@ -3,26 +3,27 @@ import { ethers } from "ethers";
 import { ArgumentParser } from "argparse";
 import fs from "fs";
 import R from "ramda";
-import json2csv from "json2csv";
+// import json2csv from "json2csv";
 import fetch from "node-fetch";
+import json2csv from "json-to-csv";
 
 import { version } from "./package.json";
 import klerosABI from "./kleros-abi.json";
 
-function toCSV(records, fileName) {
-  if (!records.length) throw new Error("Error - Array is empty");
+// function toCSV(records, fileName) {
+//   if (!records.length) throw new Error("Error - Array is empty");
 
-  const fields = { data: records, fields: R.keys(records[0]) };
+//   const fields = { data: records, fields: R.keys(records[0]) };
 
-  return new Promise<void>(function (resolve, reject) {
-    json2csv(fields, function (err, csv) {
-      if (err) reject(err);
-      fs.writeFile(fileName, csv, function (err) {
-        return !err ? resolve() : reject(err);
-      });
-    });
-  });
-}
+//   return new Promise<void>(function (resolve, reject) {
+//     json2csv(fields, function (err, csv) {
+//       if (err) reject(err);
+//       fs.writeFile(fileName, csv, function (err) {
+//         return !err ? resolve() : reject(err);
+//       });
+//     });
+//   });
+// }
 
 const parser = new ArgumentParser({
   description: "Kleros Juror Tax Reporting",
@@ -56,45 +57,50 @@ const klerosLiquid = new ethers.Contract(KLEROS_ADDRESS, klerosABI, provider);
 
 // We do things synchronously and add delays to avoid hitting rate limits.
 (async () => {
+  console.info(`Got ${jurorAddresses.length} addresses`);
+  let i = 1;
+  const results = [];
   for (const jurorAddress of jurorAddresses) {
-    console.info("Fetching events...");
+    console.info(` ${i} of ${jurorAddresses} addresses`);
+    i++;
+
     const tokenAndEthShiftEvents = await provider.getLogs({
       ...klerosLiquid.filters.TokenAndETHShift(jurorAddress),
       fromBlock: 7303699,
       toBlock: "latest",
     });
-    console.info("Fetching prices...");
 
-    const results = [];
+    console.info(`Got ${tokenAndEthShiftEvents.length} token and ETH transfers.`);
+    let j = 1;
     for (const tokenAndEthShiftEvent of tokenAndEthShiftEvents) {
+      console.info(`  ${j} of ${tokenAndEthShiftEvents.length}`);
+      j++;
       const { timestamp } = await provider.getBlock(tokenAndEthShiftEvent.blockNumber);
       const date = new Date(timestamp * 1000);
       const dateString = `${date.getDate()}-${date.getMonth()}-${date.getFullYear()}`;
 
-      const BASIS_POINTS = 10000;
-      const pnkPriceUsdAtTheTime = ethers.utils.parseUnits(
-        String(
-          (
-            await (
-              await fetch(
-                `https://api.coingecko.com/api/v3/coins/kleros/history?date=${dateString}`,
-              )
-            ).json()
-          ).market_data.current_price.usd * BASIS_POINTS,
-        ),
-        2,
+      const PRECISION = 1000000;
+      const pnkPriceUsdAtTheTimeNum = (
+        await (
+          await fetch(
+            `https://api.coingecko.com/api/v3/coins/kleros/history?date=${dateString}`,
+          )
+        ).json()
+      ).market_data.current_price.usd * PRECISION;
+
+      const pnkPriceUsdAtTheTime = ethers.BigNumber.from(
+        String(pnkPriceUsdAtTheTimeNum.toFixed(0)),
       );
-      const etherPriceUsdAtTheTime = ethers.utils.parseUnits(
-        String(
-          (
-            await (
-              await fetch(
-                `https://api.coingecko.com/api/v3/coins/ethereum/history?date=${dateString}`,
-              )
-            ).json()
-          ).market_data.current_price.usd * BASIS_POINTS,
-        ),
-        2,
+
+      const ethPriceUsdAtTheTimeNum = (
+        await (
+          await fetch(
+            `https://api.coingecko.com/api/v3/coins/ethereum/history?date=${dateString}`,
+          )
+        ).json()
+      ).market_data.current_price.usd * PRECISION;
+      const ethPriceUsdAtTheTime = ethers.BigNumber.from(
+        String(ethPriceUsdAtTheTimeNum.toFixed(0)),
       );
 
       const parsedEvent = klerosLiquid.interface.parseLog(tokenAndEthShiftEvent);
@@ -104,31 +110,26 @@ const klerosLiquid = new ethers.Contract(KLEROS_ADDRESS, klerosABI, provider);
       const pnkGainInUsd = pnkGain.mul(pnkPriceUsdAtTheTime);
 
       const ethGain = parsedEvent.args._ETHAmount as ethers.BigNumber;
-      const ethGainInUsd = ethGain.mul(etherPriceUsdAtTheTime);
+      const ethGainInUsd = ethGain.mul(ethPriceUsdAtTheTime);
 
       results.push({
         Amount: ethers.utils.formatUnits(pnkGain, 18),
         Currency: "PNK",
-        "Value in USD at the time": ethers.utils.formatUnits(
-          pnkGainInUsd.div(ethers.BigNumber.from(BASIS_POINTS)),
-          18,
-        ),
+        "Value in USD at the time": Number(ethers.utils.formatUnits(pnkGainInUsd, 18)) / PRECISION,
         Date: dateString,
         "Tx Hash": tokenAndEthShiftEvent.transactionHash,
       });
       results.push({
         Amount: ethers.utils.formatUnits(ethGain, 18),
         Currency: "ETH",
-        "Value in USD at the time": ethers.utils.formatUnits(
-          ethGainInUsd.div(ethers.BigNumber.from(BASIS_POINTS)),
-          18,
-        ),
+        "Value in USD at the time": Number(ethers.utils.formatUnits(ethGainInUsd, 18)) / PRECISION,
         Date: dateString,
         "Tx Hash": tokenAndEthShiftEvent.transactionHash,
       });
     }
-
-    console.info("Building csv...");
-    toCSV(results, "output.csv");
   }
+
+  console.info("Building csv...");
+  await json2csv(results, "output.csv");
+  console.info("Done writing to CSV");
 })();
