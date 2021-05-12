@@ -1,29 +1,12 @@
 // This tool builds a csv of all your payments and penalties your accounts received.
 import { ethers } from "ethers";
 import { ArgumentParser } from "argparse";
-import fs from "fs";
-import R from "ramda";
-// import json2csv from "json2csv";
+
 import fetch from "node-fetch";
 import json2csv from "json-to-csv";
 
 import { version } from "./package.json";
 import klerosABI from "./kleros-abi.json";
-
-// function toCSV(records, fileName) {
-//   if (!records.length) throw new Error("Error - Array is empty");
-
-//   const fields = { data: records, fields: R.keys(records[0]) };
-
-//   return new Promise<void>(function (resolve, reject) {
-//     json2csv(fields, function (err, csv) {
-//       if (err) reject(err);
-//       fs.writeFile(fileName, csv, function (err) {
-//         return !err ? resolve() : reject(err);
-//       });
-//     });
-//   });
-// }
 
 const parser = new ArgumentParser({
   description: "Kleros Juror Tax Reporting",
@@ -32,11 +15,12 @@ const parser = new ArgumentParser({
 
 parser.add_argument("-v", "--version", { action: "version", version });
 parser.add_argument("-e", "--etherscan", { help: "Etherscan api key" });
+parser.add_argument("-c", "--cryptocompare", { help: "Cryptocompare api key" });
 parser.add_argument("-a", "--addresses", {
   help: "Path to JSON array of the addresses you used as a juror",
 });
 
-const { etherscan: etherscanKey, addresses: jurorAddressesPath } = parser.parse_args();
+const { etherscan: etherscanKey, addresses: jurorAddressesPath, cryptocompare: cryptocompareKey } = parser.parse_args();
 if (!etherscanKey) {
   console.error("Missing etherscan key. Use -h to learn more.");
   process.exit(1);
@@ -44,6 +28,11 @@ if (!etherscanKey) {
 
 if (!jurorAddressesPath) {
   console.error("Missing juror addresses path. Use -h to learn more.");
+  process.exit(1);
+}
+
+if (!cryptocompareKey) {
+  console.error("Missing cryptocompare key. Use -h to learn more.");
   process.exit(1);
 }
 
@@ -61,7 +50,7 @@ const klerosLiquid = new ethers.Contract(KLEROS_ADDRESS, klerosABI, provider);
   let i = 1;
   const results = [];
   for (const jurorAddress of jurorAddresses) {
-    console.info(` ${i} of ${jurorAddresses} addresses`);
+    console.info(` ${i} of ${jurorAddresses.length} addresses`);
     i++;
 
     const tokenAndEthShiftEvents = await provider.getLogs({
@@ -83,10 +72,10 @@ const klerosLiquid = new ethers.Contract(KLEROS_ADDRESS, klerosABI, provider);
       const pnkPriceUsdAtTheTimeNum = (
         await (
           await fetch(
-            `https://api.coingecko.com/api/v3/coins/kleros/history?date=${dateString}`,
+            `https://min-api.cryptocompare.com/data/v2/histoday?fsym=PNK&tsym=USD&limit=1&aggregate=1&toTs=${timestamp}&extraParams=visus_tax&api_key=${cryptocompareKey}`,
           )
         ).json()
-      ).market_data.current_price.usd * PRECISION;
+      ).Data.Data[0].close * PRECISION;
 
       const pnkPriceUsdAtTheTime = ethers.BigNumber.from(
         String(pnkPriceUsdAtTheTimeNum.toFixed(0)),
@@ -95,10 +84,10 @@ const klerosLiquid = new ethers.Contract(KLEROS_ADDRESS, klerosABI, provider);
       const ethPriceUsdAtTheTimeNum = (
         await (
           await fetch(
-            `https://api.coingecko.com/api/v3/coins/ethereum/history?date=${dateString}`,
+            `https://min-api.cryptocompare.com/data/v2/histoday?fsym=ETH&tsym=USD&limit=1&aggregate=1&toTs=${timestamp}&extraParams=visus_tax&api_key=${cryptocompareKey}`,
           )
         ).json()
-      ).market_data.current_price.usd * PRECISION;
+      ).Data.Data[0].close * PRECISION;
       const ethPriceUsdAtTheTime = ethers.BigNumber.from(
         String(ethPriceUsdAtTheTimeNum.toFixed(0)),
       );
